@@ -86,7 +86,7 @@ def get_ftp(res_):
 
 def get_ssh(res_):
 	try:
-		print res_.json()['ip'], ':', res_.json()['22']['ssh']['banner']
+		print res_.json()['ip'], ':', res_.json()['22']['ssh']['banner']['raw_banner']
 	except:
 		print 'NO TITLE'
 
