@@ -11,18 +11,19 @@ http = ['-h', '--http']
 ssh = ['-s', '--ssh']
 invalid_env = 0
 protocol = []
-num_results = 0 # defaults to no results printed (Just query server)
+num_results = 0 # defaults to no results collected (Just query server)
 list_ips = 0 # If 1: print the list of IP's
 view_data = 0 # If 1: print the data associated with the IP's
 filename = ""
 
 def helptext():				# just print the help text and quit
-	print "usage: %s [-f] [-s] [-h] [-l] [-w filename] [integer]\n" % sys.argv[0]
+	print "usage: %s [-f] [-s] [-h] [-l] [-v] [-w filename] [integer]\n" % sys.argv[0]
 	print "protocols: (multiple accepted)"
 	print "--ftp (-f)	FTP (port 21)"
 	print "--ssh (-s)	SSH (port 22)"
 	print "--http (-h)	HTTP (port 80)\n"
 	print "--list (-l)	Print list of IP's to stdout"
+	print "--view (-v)	Print details of services to stdout"
 	print "--write (-w) [filename] will write output to file (optional)"
 	print "[integer] is number of ip's to query(optional)"
 
@@ -50,10 +51,10 @@ def search(num_results_):	# query the database for number of results specified t
 
 		print "results returned: %i of type %s" % (num_results_, protocol[x])	# Status information to stdout
 
-		for x in range(0,num_results_):  # Retrieve the content for the first [x] results to stdout
-			content = get_content(results[x]['ip'])
+		for y in range(0,num_results_):  # Retrieve the content for the first [x] results to stdout
+			content = get_content(results[y]['ip'],protocol[x])
 			if len(filename) >= 1:
-				# put content in file
+				f.write(content.encode("utf8"))
 			if view_data == 1:
 				print content
 									
@@ -73,19 +74,32 @@ def query(page, protocol):
 	return [results, pages]
 
   
-def get_content(ip_addr): # get the content associated with the ip # !!!!! Needs to return and not print!
+def get_content(ip_addr, _protocol): # get the content associated with the ip and protocol
 	details = ""
-	for x in range(0,len(protocol)):		# For every protocol specified..
-		res = requests.get(API_URL +  "/view/ipv4/" + ip_addr, auth=(UID, SECRET))
-		if res.status_code != 200:
-			print "error occurred: %s" % res.json()["error"]
-			sys.exit(1)
-		details = details + res.json()['ip'], ": "
-	 	details = details + res_.json()['80']['http']['get']['title']
-		details = details + res_.json()['80']['http']['get']['body']
-	 	details = details + res_.json()['21']['ftp']['banner']['banner']
-		details = details + res_.json()['22']['ssh']['banner']['raw_banner']
-	print details
+	res = requests.get(API_URL +  "/view/ipv4/" + ip_addr, auth=(UID, SECRET))
+	if res.status_code != 200:
+		print "error occurred: %s" % res.json()["error"]
+		sys.exit(1)
+
+ 	if _protocol == "http":
+	 	try:
+	  		details = res.json()['ip'] + "\n" + res.json()['80']['http']['get']['title'] + "\n" + res.json()['80']['http']['get']['body'] + "\n"
+	 	except:
+	 		details = ip_addr, ": NO TITLE"
+
+	if _protocol == "ftp":
+	 	try:
+	 		details = res.json()['ip'] + " :\n" + res.json()['21']['ftp']['banner']['banner'] + "\n"
+		except:
+		 	details = ip_addr, ": NO TITLE"
+
+ 	if _protocol == "ssh":
+		try:
+			details = res.json()['ip'] +  " : " + res.json()['22']['ssh']['banner']['raw_banner']
+		except:
+	 		details = ip_addr, ": NO TITLE"
+
+	return details
 
 
 try:
@@ -109,14 +123,18 @@ for i in range(1,len(sys.argv)):	# Run through all the arguments
 		protocol.append('ssh')
 	elif argument == '-l' or argument == '--list':
 		list_ips = 1
+	elif argument == '-v' or argument == '--view':
+		view_data = 1
 	elif argument == '-w' or argument == '--write':
 		try:
 			filename = sys.argv[i+1]		# Set the filename (must be right after --write (-w) argument)
 			if filename[0] == '-':
 				raise Exception('Not a filename, probably another flag')
 		except:
-			invalid_env = 1			
-		print 'Will write output to %s' % filename
+			invalid_env = 1	
+	elif argument == filename:
+		print 'Will write output to %s' % filename	
+		f = open(filename, 'a')			
 	else:							# If the argument is not a flag, maybe it is an integer?
 		try:
 			if int(argument) in range(1,10000):
@@ -127,6 +145,7 @@ for i in range(1,len(sys.argv)):	# Run through all the arguments
 				print "Please don't try to display more than 10k results..."
 		except:
 			invalid_env = 1
+
 
 if invalid_env == 1 or len(protocol) == 0:	# If something is wrong with the arguments, display helptext
 		helptext()
