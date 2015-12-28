@@ -74,39 +74,18 @@ def query(page, protocol):
 
   
 def get_content(ip_addr): # get the content associated with the ip # !!!!! Needs to return and not print!
-	res = requests.get(API_URL +  "/view/ipv4/" + ip_addr, auth=(UID, SECRET))
-	if res.status_code != 200:
-		print "error occurred: %s" % res.json()["error"]
-		sys.exit(1)
-	if protocol == 'http': ## THIS DOES NOT WORK, THIS NEEDS TO BE A FOR LOOP
-		content = get_http(res)
-	if protocol == 'ftp': ## THIS DOES NOT WORK
-		content = get_ftp(res)
-	if protocol == 'ssh': ## THIS DOES NOT WORK
-		content = get_ssh(res)
-		
-
-def get_http(res_): # !!!!! Needs to return and not print
-	try:
-		print res_.json()['ip'], ':', res_.json()['80']['http']['get']['title']
-		print res_.json()['80']['http']['get']['body']
-	except:
-		print 'NO TITLE'
-
-
-def get_ftp(res_):# !!!!! Needs to return and not print
-	try:
-		print res_.json()['ip'], ':', res_.json()['21']['ftp']['banner']['banner']
-	except:
-		print 'NO TITLE'
-
-
-def get_ssh(res_):# !!!!! Needs to return and not print
-	try:
-		print res_.json()['ip'], ':', res_.json()['22']['ssh']['banner']['raw_banner']
-	except:
-		print 'NO TITLE'
-
+	details = ""
+	for x in range(0,len(protocol)):		# For every protocol specified..
+		res = requests.get(API_URL +  "/view/ipv4/" + ip_addr, auth=(UID, SECRET))
+		if res.status_code != 200:
+			print "error occurred: %s" % res.json()["error"]
+			sys.exit(1)
+		details = details + res.json()['ip'], ": "
+	 	details = details + res_.json()['80']['http']['get']['title']
+		details = details + res_.json()['80']['http']['get']['body']
+	 	details = details + res_.json()['21']['ftp']['banner']['banner']
+		details = details + res_.json()['22']['ssh']['banner']['raw_banner']
+	print details
 
 
 try:
