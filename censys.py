@@ -11,9 +11,9 @@ http = ['-h', '--http']
 ssh = ['-s', '--ssh']
 invalid_env = 0
 protocol = []
-num_results = 0 # defaults to no results collected (Just query server)
-list_ips = 0 # If 1: print the list of IP's
-view_data = 0 # If 1: print the data associated with the IP's
+num_results = 0 		# defaults to no results collected (Just query server)
+list_ips = 0 			# If 1: print the list of IP's
+view_data = 0 			# If 1: print the data associated with the IP's
 filename = ""
 
 def helptext():				# just print the help text and quit
@@ -34,7 +34,7 @@ def search(num_results_):	# query the database for number of results specified t
 	pages = 1
 	num_pages = 0
 	if num_results_ >= 100:
-		num_pages = (num_results_/100)
+		num_pages = (num_results_/100)		# Make sure the number of pages in the query are not excessive
 	for x in range(0,len(protocol)):		# For every protocol specified..
 		for y in range(1,num_pages+2):		# And the number of results specified..
 			if pages >= y:
@@ -51,15 +51,16 @@ def search(num_results_):	# query the database for number of results specified t
 
 		print "results returned: %i of type %s" % (num_results_, protocol[x])	# Status information to stdout
 
-		for y in range(0,num_results_):  # Retrieve the content for the first [x] results to stdout
-			content = get_content(results[y]['ip'],protocol[x])
-			if len(filename) >= 1:
-				f.write(content.encode("utf8"))
-			if view_data == 1:
-				print content
-									
-
+		if (filename != "" or view_data != 0):
+			for y in range(0,num_results_):  # Retrieve the content for the first [x] results to stdout
+				content = get_content(results[y]['ip'],protocol[x])
+				if len(filename) >= 1:
+					f.write(content)
+				if view_data == 1:
+					print content
+		
 		results = [] # Clean up results for this protocol
+
 def query(page, protocol):
 	query = 'location.province:More AND location.country_code:NO AND tags:' + protocol
 	query_ = '{"query":"' + query + '", "page":' + str(page) + ', "fields":["ip", "tags"]}'
@@ -78,28 +79,27 @@ def get_content(ip_addr, _protocol): # get the content associated with the ip an
 	details = ""
 	res = requests.get(API_URL +  "/view/ipv4/" + ip_addr, auth=(UID, SECRET))
 	if res.status_code != 200:
-		print "error occurred: %s" % res.json()["error"]
-		sys.exit(1)
+		print "Nothing returned on IP: " + ip_addr
 
  	if _protocol == "http":
 	 	try:
-	  		details = res.json()['ip'] + "\n" + res.json()['80']['http']['get']['title'] + "\n" + res.json()['80']['http']['get']['body'] + "\n"
+	  		details = str(res.json()['ip']) + "\n" + res.json()['80']['http']['get']['title'] + "\n" + res.json()['80']['http']['get']['body'][300] + "\n"
 	 	except:
-	 		details = ip_addr, ": NO TITLE"
+	 		details = ip_addr + ": NO TITLE\n"
 
 	if _protocol == "ftp":
 	 	try:
-	 		details = res.json()['ip'] + " :\n" + res.json()['21']['ftp']['banner']['banner'] + "\n"
+	 		details = str(res.json()['ip']) + "\n" + res.json()['21']['ftp']['banner']['banner']
 		except:
-		 	details = ip_addr, ": NO TITLE"
+		 	details = ip_addr + ": NO TITLE\n"
 
  	if _protocol == "ssh":
 		try:
-			details = res.json()['ip'] +  " : " + res.json()['22']['ssh']['banner']['raw_banner']
+			details = str(res.json()['ip']) +  "		" + res.json()['22']['ssh']['banner']['raw_banner']
 		except:
-	 		details = ip_addr, ": NO TITLE"
+	 		details = ip_addr + ": NO TITLE\n"
 
-	return details
+	return details.encode("utf8")
 
 
 try:
