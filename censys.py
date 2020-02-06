@@ -51,17 +51,18 @@ def search(num_results, view_data, list_ips, protocols, output_file):	# query th
         if num_results > len(results):
             num_results = len(results)		# Make sure to keep within the number of results available
 
-        if list_ips:					# If specified, print the ip's to stdout
+        if list_ips:
+            all_results = ""    # If specified, print the ip's to stdout
             for i in range(0,num_results):
-                print results[i]['ip']
-
+                all_results += results[i]['ip'] + " "
+            print all_results
         print "results returned: %i of type %s" % (num_results, protocol)	# Status information to stdout
 
         if (output_file is not None or view_data):
             for y in range(0,num_results):  # Retrieve the content for the first [x] results to stdout
                 content = get_content(results[y]['ip'], protocol)
-                if len(filename) > 0:
-                    f.write(content)
+                if output_file is not None:
+                    output_file.write(content)
                 if view_data:
                     print content
 
@@ -86,9 +87,9 @@ def get_content(ip, protocol): # get the content associated with the ip and prot
         print "Nothing returned on IP: " + ip
     if protocol == "http":
         try:
-            details = str(res.json()['ip']) + "\n" + res.json()['80']['http']['get']['title'] + "\n" + res.json()['80']['http']['get']['body'][300] + "\n"
+            details = "-"*50 + "\n\t" + str(res.json()['ip']) + "\nTitle:\n" + res.json()['80']['http']['get']['title'] + "\nBody:\n" + res.json()['80']['http']['get']['body'][:300] + "\n"
         except:
-            details = ip + ": NO TITLE\n"
+            details = "-"*50 + "\n\t" + ip + "\n\nNO TITLE\n"
 
     if protocol == "ftp":
         try:
@@ -126,51 +127,21 @@ def parse_args():
     f = None
     for i in range(1,len(sys.argv)):	# Run through all the arguments
         argument = sys.argv[i]
+        print "parsing %s " % sys.argv[i]
         if argument == '-f' or argument == '--ftp':
             protocol_array.append('ftp')
         elif argument == '-h' or argument == '--http':
             protocol_array.append('http')
         elif argument == '-s' or argument == '--ssh':
             protocol_array.append('ssh')
-        # elif argument == '--country':
-        #     try:
-        #         country = sys.argv[i + 1]
-        #         if country[0] == '-': #TODO make an array of accepted country codes and match for correctness
-        #             raise Exception("ERROR: Please provide a country code after --country argument\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        # elif argument == '--province':
-        #     try:
-        #         province = sys.argv[i + 1]
-        #         if province[0] == '-':
-        #             raise Exception("ERROR: Please provide a province after --province argument\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        # elif argument == '--city':
-        #     try:
-        #         city = sys.argv[i + 1]
-        #         if city[0] == '-':
-        #             raise Exception("ERROR: Please provide a city after --city argument\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        # elif argument == '--search':
-        #     try:
-        #         search_text = sys.argv[i + 1]
-        #         if search_text[0] == '-':
-        #             raise Exception("ERROR: Bad formatting of search query\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        #     finally:
-        #         print("Save search query?") # TODO Set up input here, and save query to configuration file
-        elif argument == '-l' or '--list':
+        elif argument == '-l' or argument == '--list':
             list_ips = True
+            print "it was list"
         elif argument == '-v' or argument == '--view':
             view_data = True
+            print "it was view"
         elif argument == '-w' or argument == '--write':
+            print "it was write"
             try:
                 filename = sys.argv[i+1]		# Set the filename (must be right after --write (-w) argument)
                 if filename[0] == '-':
@@ -181,23 +152,23 @@ def parse_args():
             except Exception as e:
                 print("{}\r\n\r\n".format(e))
                 helptext()
-        else:							# If the argument is not a flag, maybe it is an integer?
+        elif argument != filename:							# If the argument is not a flag, maybe it is an integer?
             try:
                 if int(argument) == 0:
                     print "You entered 0, will just search and not print any results"
                 elif int(argument) in range(1,10000):
                     num_results = int(argument)
+                    print("You asked for {} results".format(num_results))
                 if int(argument) > 10000:
                     raise Exception("ERROR: Please don't try to display more than 10k results...\r\n\r\n")
+                print "it was an integer"
             except Exception as e:
-                print(e)
                 helptext()
-
-        if len(protocol_array) == 0:
-            print("Please provide at least one protocol to search for\r\n\r\n")
-            helptext()
-        else:
-            search(num_results, view_data, list_ips, protocol_array, f)
+    if len(protocol_array) == 0:
+        print("Please provide at least one protocol to search for\r\n\r\n")
+        helptext()
+    else:
+        search(num_results, view_data, list_ips, protocol_array, f)
 
 config = read_config()
 
