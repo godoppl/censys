@@ -1,209 +1,229 @@
 #!/usr/bin/env python
 
-import os
 import sys
-import json
-import requests
+import os.path
+#import json
+import time
+import query
 import configparser2
 
 parser = configparser2.ConfigParser()
-
-API_URL = "https://www.censys.io/api/v1"
 invalid_env = False
-protocol_array = []
-filename = ""
-country = ""
-province = ""
-city = ""
-search_text = ""
+num_results = 100
+option_array = []
+details = False
+listIP = False
+fileobject = None
 
-def helptext():				# just print the help text and quit
-    print "usage: %s [-f] [-s] [-h] [-l] [-v] [-w filename] [-n results]\r\n" % sys.argv[0]
+
+def help():
+    # help: Prints the helptext and quits
+    print sys.argv[0] + ": Performs IPv4 searches in censys.io database for addresses and protocols"
+    print "usage: %s [-f] [-s] [-h] [-d] [--country:] [--province:] [--city:] [--search:] [-w filename] [Integer]\r\n" % sys.argv[0]
     print "protocols: (multiple accepted)"
-    print "--ftp (-f)	FTP (port 21)"
-    print "--ssh (-s)	SSH (port 22)"
-    print "--http (-h)	HTTP (port 80)\r\n"
-    print "COMING SOON: " + "--country [Country code] eg. GB, US, NO or similar"
-    print "COMING SOON: " + "--province [Province or County] eg. California, Nordland"
-    print "COMING SOON: " + "--city [City] eg. London, Oslo, Austin"
-    print "COMING SOON: " + "--search [Search query]\r\n"
-    print "--list (-l)	Print list of IP's to stdout"
-    print "--view (-v)	Print details of services to stdout"
-    print "--write (-w) [filename] will write output to file (optional)"
-    print "-n [integer] is number of ip's to request details(optional)"
+    print "--ftp (-f)       FTP (port 21)"
+    print "--ssh (-s)       SSH (port 22)"
+    print "--http (-h)      HTTP (port 80)"
+    print "--https          HTTPS (port 443)"
+    print "--heartbleed     Heartbleed vulnerable\r\n"
 
-    sys.exit(1)
+    print "--country:[Country]              eg. England, 'United States of America', Norway or similar"
+    print "--province:[Province or County]  eg. California, Nordland"
+    print "--city:[City]                    eg. London, Oslo, Austin"
+    print "--search:[Search query]          Search for specific string in Banner, Title or Body of default response\r\n"
 
-def search(num_results, view_data, list_ips, protocols, output_file):	# query the database for number of results specified the selected protocol (or all if not specified)
+    print "--details (-d)                   Print details of services to stdout"
+    print "--write (-w):[filename]          Write details of services to file (optional)"
+    print "--write-list (-wl):[filename]    Only write list of IP's (Useful for importing to nmap or msf)"
+    print "[Integer]                        Number of ip's to request (optional, default is 100, maximum is 10000)"
+
+    exit()
+
+def read_config():
+    # read_config: Read the configuration file, and check if API Credentials are stored. If there are no API
+    # Credentials stored, ask for those and store them in the configuration file if user accepts to do so
+
+    if not os.path.isfile('censys.conf'):
+        open('censys.conf', 'a').close()
+    with open('censys.conf', 'r+') as config_file:
+        parser.read_file(config_file)
+        config_file.seek(0) # Seek back to start in case of writing to the config file
+        try:
+            query.auth(parser['authentication']['uid'], parser['authentication']['secret'])  # Initialize the query engine with credentials
+        except:
+            print "WARNING: No registered API Credentials!\nGet these from: https://censys.io/account"
+            UID = raw_input('Please input censys UID: ')
+            SECRET = raw_input('Please input censys SECRET: ')
+            query.auth(UID, SECRET)  # Initialize the query engine with credentials
+            answer = raw_input("Write API Credentials to config? [y/N]")
+            if answer == "y":
+                parser.add_section('authentication')
+                parser['authentication']['UID'] = UID
+                parser['authentication']['SECRET'] = SECRET
+                parser.write(config_file)
+
+def parse_args():
+    global num_results
+    global option_array
+    global details
+    global listIP
+    global fileobject
+    for i in range(1,len(sys.argv)):	# Run through all the arguments
+        argument = sys.argv[i]
+        if argument == '-f' or argument == '--ftp':
+            option_array.append('21.ftp')
+        elif argument == '-h' or argument == '--http':
+            option_array.append('80.http')
+        elif argument == '-s' or argument == '--ssh':
+            option_array.append('22.ssh')
+        elif argument == '--https':
+            option_array.append('443.https')
+        elif argument == '--heartbleed':
+            option_array.append('tags:heartbleed')
+        elif argument[:9] == '--country' :
+            try:
+                arg, country = argument.split(':')
+                if country == "":
+                    raise Exception("ERROR: Please provide a country code after --country argument\r\n\r\n")
+                else:
+                    option_array.append("location.country:{}".format(country))
+            except Exception as e:
+                print(e)
+                help()
+        elif argument[:10] == '--province':
+            try:
+                arg, province = argument.split(':')
+                if province == "":
+                    raise Exception("ERROR: Please provide a province after --province argument\r\n\r\n")
+                else:
+                    option_array.append("location.province:{}".format(province))
+            except Exception as e:
+                print(e)
+                help()
+        elif argument[:6] == '--city':
+            try:
+                arg, city = argument.split(':')
+                if city == "":
+                    raise Exception("ERROR: Please provide a city after --city argument\r\n\r\n")
+                else:
+                   option_array.append("location.city:{}".format(city))
+            except Exception as e:
+                print(e)
+                help()
+        elif argument[:8] == '--search':
+            try:
+                arg, search_text = argument.split(':')
+                if search_text == "":
+                    raise Exception("ERROR: Bad formatting of search query\r\n\r\n")
+                else:
+                   option_array.append(search_text)
+            except Exception as e:
+                print(e)
+                help()
+        elif argument == '-d' or argument == '--details':
+            details = True
+        elif argument[:2] == '-w' or argument[:7] == '--write':
+            try:
+                arg, filename = argument.split(':')
+            except:
+                print("No filename given, will use current time as filename")
+                arg = argument
+                filename = ""
+            listIP = (arg == "-wl" or arg == "--write-list")
+            if filename == "":
+                filename = time.strftime('%d_%b_%H_%M_%S.out')
+            fileobject = open(filename, 'a')
+        else:
+            try:
+                if int(argument) == 0:
+                    help()
+                elif int(argument) in range(1,10000):
+                    num_results = int(argument)
+                if int(argument) > 10000:
+                    print("WARNING: Capping the query to 10k results...\r\n\r\n")
+                    num_results = 10000
+            except Exception as e:
+                print(e)
+                help()
+
+    if len('option_array') == 0:
+        print("ERROR: Please provide something to search for\r\n\r\n")
+        help()
+
+
+
+#   search: Build the query from the arguments passed
+#   Uses global variables:
+#       num_results (int): The number of results to return
+#       view_data (boolean): Print list to std_out?
+#       details (boolean): Print details of each item in the list to std_out?
+#       protocols (string array): What protocols to search for
+#       fileobject (file object): What file to write results to
+def search():
+    global num_results
+    global option_array
+    global details
+    global listIP
+    global fileobject
     results = []
     pages = 1
     num_pages = 0
     if num_results >= 100:
         num_pages = (num_results/100)		# TODO Reevaluate this solution, seems overly complicated
 
-    for protocol in protocols:		# For every protocol specified..
-        for y in range(1,num_pages+2):		# And the number of results specified..
-            if pages >= y:
-                result = query(y, protocol)  # Query the server
-                pages = result[1]
-                results = results + result[0]
-
-        if num_results > len(results):
-            num_results = len(results)		# Make sure to keep within the number of results available
-
-        if list_ips:					# If specified, print the ip's to stdout
-            for i in range(0,num_results):
-                print results[i]['ip']
-
-        print "results returned: %i of type %s" % (num_results, protocol)	# Status information to stdout
-
-        if (output_file is not None or view_data):
-            for y in range(0,num_results):  # Retrieve the content for the first [x] results to stdout
-                content = get_content(results[y]['ip'], protocol)
-                if len(filename) > 0:
-                    f.write(content)
-                if view_data:
-                    print content
-
-        results = [] # Clean up results for this protocol
-
-def query(page, protocol):
-    query_string = 'location.province:More AND location.country_code:NO AND tags:' + protocol      # TODO make the query from arguments instead
-    json_query = json.loads('{"query":"' + query_string + '", "page":' + str(page) + ', "fields":["ip", "tags"]}')
-    res = requests.post(API_URL + "/search/ipv4", json=json_query, auth=(UID, SECRET))
-    if res.status_code != 200:
-        print "error occurred: %s" % res.json()["error"]
-        sys.exit(1)
-    # print "This search revealed %s ip addresses" % res.json()['metadata']['count']
-    results = res.json()['results']
-    pages = res.json()['metadata']['pages']
-    return [results, pages]
-
-def get_content(ip, protocol): # get the content associated with the ip and protocol
-    details = ""
-    res = requests.get(API_URL +  "/view/ipv4/" + ip, auth=(UID, SECRET))
-    if res.status_code != 200:
-        print "Nothing returned on IP: " + ip
-    if protocol == "http":
-        try:
-            details = str(res.json()['ip']) + "\n" + res.json()['80']['http']['get']['title'] + "\n" + res.json()['80']['http']['get']['body'][300] + "\n"
-        except:
-            details = ip + ": NO TITLE\n"
-
-    if protocol == "ftp":
-        try:
-            details = str(res.json()['ip']) + "\n" + res.json()['21']['ftp']['banner']['banner']
-        except:
-            details = ip + ": NO TITLE\n"
-
-    if protocol == "ssh":
-        try:
-            details = str(res.json()['ip']) +  "		" + res.json()['22']['ssh']['banner']['raw_banner']
-        except:
-            details = ip + ": NO TITLE\n"
-
-    return details.encode("utf8")
-
-def read_config():
-    try:
-        config_file = open('censys.conf', 'r+')
-        parser.read_file(config_file)
-        # TODO If ['authentication'] does not exist or the uid and secret options are not present, we need to ask for this information
-    except Exception as e:
-        print(e)
-
-    global UID
-    global SECRET
-    ## Check for authentication and set variables
-    UID = parser['authentication']['uid']
-    SECRET = parser['authentication']['secret']
-    return parser
-
-def parse_args():
-    view_data = False
-    list_ips = False
-    num_results = 0
-    f = None
-    for i in range(1,len(sys.argv)):	# Run through all the arguments
-        argument = sys.argv[i]
-        if argument == '-f' or argument == '--ftp':
-            protocol_array.append('ftp')
-        elif argument == '-h' or argument == '--http':
-            protocol_array.append('http')
-        elif argument == '-s' or argument == '--ssh':
-            protocol_array.append('ssh')
-        # elif argument == '--country':
-        #     try:
-        #         country = sys.argv[i + 1]
-        #         if country[0] == '-': #TODO make an array of accepted country codes and match for correctness
-        #             raise Exception("ERROR: Please provide a country code after --country argument\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        # elif argument == '--province':
-        #     try:
-        #         province = sys.argv[i + 1]
-        #         if province[0] == '-':
-        #             raise Exception("ERROR: Please provide a province after --province argument\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        # elif argument == '--city':
-        #     try:
-        #         city = sys.argv[i + 1]
-        #         if city[0] == '-':
-        #             raise Exception("ERROR: Please provide a city after --city argument\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        # elif argument == '--search':
-        #     try:
-        #         search_text = sys.argv[i + 1]
-        #         if search_text[0] == '-':
-        #             raise Exception("ERROR: Bad formatting of search query\r\n\r\n")
-        #     except Exception as e:
-        #         print(e)
-        #         helptext()
-        #     finally:
-        #         print("Save search query?") # TODO Set up input here, and save query to configuration file
-        elif argument == '-l' or '--list':
-            list_ips = True
-        elif argument == '-v' or argument == '--view':
-            view_data = True
-        elif argument == '-w' or argument == '--write':
+    # TODO We should return only results that have services responding on all selected protocols
+    for y in range(1,num_pages+2):		# And the number of results specified..
+        # TODO This should not be done with a for loop.... The query function should handle this instead
+        if pages >= y:
             try:
-                filename = sys.argv[i+1]		# Set the filename (must be right after --write (-w) argument)
-                if filename[0] == '-':
-                    raise Exception("ERROR: Not a filename, probably another flag\r\n\r\n")
-                else:
-                    print 'Will write output to %s' % filename
-                    f = open(filename, 'a')
-            except Exception as e:
-                print("{}\r\n\r\n".format(e))
-                helptext()
-        else:							# If the argument is not a flag, maybe it is an integer?
-            try:
-                if int(argument) == 0:
-                    print "You entered 0, will just search and not print any results"
-                elif int(argument) in range(1,10000):
-                    num_results = int(argument)
-                if int(argument) > 10000:
-                    raise Exception("ERROR: Please don't try to display more than 10k results...\r\n\r\n")
+                result = query.query(y, option_array)  # Query the server
             except Exception as e:
                 print(e)
-                helptext()
+                help()
+            pages = result.json()['metadata']['pages']
+            results = results + result.json()['results']
 
-        if len(protocol_array) == 0:
-            print("Please provide at least one protocol to search for\r\n\r\n")
-            helptext()
+    if num_results > len(results):
+        num_results = len(results)		# This makes sure to keep within the number of results available
+
+    for i in range(0,num_results):
+        ip = results[i]['ip']
+        if details or (fileobject is not None and not listIP):
+            content = query.detail(ip)
+        if details:
+            print(content)
         else:
-            search(num_results, view_data, list_ips, protocol_array, f)
+            print(ip)
+        if fileobject is not None:
+            if listIP:
+                fileobject.write(ip + " ")
+            else:
+                fileobject.write(content + "\n")
 
-config = read_config()
+    query_string = query.constructor(option_array)
+    print("search query: {}".format(query_string))
+    answer = raw_input("Save search query? [y/N]")
+    if answer == "y":
+        with open('censys.conf', 'r+') as config_file:
+            try:
+                parser = configparser2.ConfigParser()
+                parser.read_file(config_file)
+                config_file.seek(0) # Seek back to start in case of writing to the config file
+                try:
+                    saved = parser.options('saved_searches')
+                except:
+                    parser.add_section('saved_searches')
+                    saved = parser.options('saved_searches')
+                parser['saved_searches'][str(len(saved))] = query_string
+                parser.write(config_file)
+            except Exception as e:
+                print(e)
 
-if len(sys.argv) == 1:		# Display help if no arguments
-    helptext()
+
+
+if len(sys.argv) == 1: # Display help if no arguments
+    help()
 else:
-    parse_args()
-
-# search(num_results) # execute the search and output module
+    read_config() # Read the config file
+    parse_args() # Go through the list of arguments and start the search
+    search()
